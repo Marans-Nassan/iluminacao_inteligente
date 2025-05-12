@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
+#include "hardware/timer.h"
 #include "hardware/pwm.h"
 #include "pico/cyw43_arch.h"
 #include "lwip/pbuf.h"
@@ -10,8 +11,8 @@
 #include "lwip/netif.h"
 #include "lwipopts.h"
 
-#define WIFI_SSID "SEU_SSID"
-#define WIFI_PASSWORD "SUA_SENHA"
+#define WIFI_SSID "S.F.C 2"
+#define WIFI_PASSWORD "857aj431"
 #define LED_PIN CYW43_WL_GPIO_LED_PIN
 #define green_led 11
 #define blue_led 12
@@ -19,12 +20,20 @@
 #define buzzer_a 21
 
 uint8_t slice = 0;
+typedef struct{
+    float dc;
+    float div;
+    bool vol_up_down;
+    bool alarm_state;
+} pwm_struct;
+pwm_struct p = {39.0, 64.0, false, false};
 
 void ledinit(void);
 int pwm_setup(void);
-void pwm_on_nivel(void);
+void pwm_on(void);
 void pwm_off(void);
-void pwm_volume(uint8_t duty_cycle);
+int64_t controle_pwm_crescendo(alarm_id_t id, void *user_data);
+int64_t controle_pwm_decrescendo(alarm_id_t id, void *user_data);
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 float temp_read(void);
@@ -33,6 +42,7 @@ void user_request(char **request);
 int main(){
     stdio_init_all();
     ledinit();
+    pwm_setup();
 
     while (cyw43_arch_init()){
         printf("Falha ao inicializar Wi-Fi\n");
@@ -92,17 +102,17 @@ void ledinit(void){
 
 int pwm_setup(void){
     gpio_set_function(buzzer_a, GPIO_FUNC_PWM);
-    slice = pwm_set_slice_num(buzzer_a);
+    slice = pwm_gpio_to_slice_num(buzzer_a);
     pwm_set_clkdiv(slice, 64.0);
-    pwm_set_wrap(slice, 3900);
+    pwm_set_wrap(slice, 40.0);
     pwm_set_enabled(slice, true);
     return slice;
 }
 
-void pwm_on_nivel(void){
-    pwm_set_function(buzzer_a, GPIO_FUNC_PWM);
+void pwm_on(void){
+    gpio_set_function(buzzer_a, GPIO_FUNC_PWM);
     pwm_set_enabled(slice, true);
-    pwm_set_level(slice, 0);
+    pwm_set_gpio_level(slice, 0);
 }
 
 void pwm_off(void){
@@ -112,8 +122,47 @@ void pwm_off(void){
     gpio_put(buzzer_a, 0);
 }
 
-void pwm_volume(uint8_t duty_cycle){
+int64_t controle_pwm_crescendo(alarm_id_t id, void *user_data){
+    p.vol_up_down = true;
+    if(p.dc < 3900.0 && p.alarm_state == false){
+        p.dc += 39.0;
+        p.div -= 0.32;
+        pwm_set_wrap(slice, p.dc);
+        pwm_set_clkdiv(slice, p.div);
+        pwm_set_gpio_level(slice, p.dc/2);
+        add_alarm_in_ms(10, controle_pwm_crescendo, NULL, false);
+    } else if(p.dc >= 3900.0 && p.alarm_state == false) {
+        p.dc = 3900;
+        p.div = 32.0;
+        pwm_set_wrap(slice, p.dc);
+        pwm_set_clkdiv(slice, p.div);
+        pwm_set_gpio_level(slice, p.dc/2); 
+        p.alarm_state = true;
+        add_alarm_in_ms (4000, controle_pwm_decrescendo, NULL, false);
 
+    }
+    return 0;
+}
+
+int64_t controle_pwm_decrescendo(alarm_id_t id, void *user_data){
+    if(p.dc >= 3900.0 && p.alarm_state == true){
+        p.dc -= 39.0;
+        p.div += 0.32;
+        pwm_set_wrap(slice, p.dc);
+        pwm_set_clkdiv(slice, p.div);
+        pwm_set_gpio_level(slice, p.dc/2); 
+        add_alarm_in_ms(10, controle_pwm_decrescendo, NULL, false);
+    } else if(p.dc < 40.0 && p.alarm_state == true){
+        p.dc = 39.0;
+        p.div = 64.0;
+        pwm_set_wrap(slice, p.dc);
+        pwm_set_clkdiv(slice, p.div);
+        pwm_set_gpio_level(slice, p.dc/2);
+        p.alarm_state = false;
+        p.vol_up_down = false;
+        pwm_off();
+    }
+    return 0;
 }
 
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err){
@@ -122,19 +171,20 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err){
 }
 
 void user_request(char **request){
-    if (strstr(*request, "GET /blue_on") != NULL) gpio_put(blue_led, 1);
-    else if (strstr(*request, "GET /blue_off") != NULL) gpio_put(blue_led, 0);
-    else if (strstr(*request, "GET /green_on") != NULL) gpio_put(green_led, 1);
-    else if (strstr(*request, "GET /green_off") != NULL) gpio_put(green_led, 0);
-    else if (strstr(*request, "GET /red_on") != NULL) gpio_put(red_led, 1);
-    else if (strstr(*request, "GET /red_off") != NULL) gpio_put(red_led, 0);
-    else if (strstr(*request, "GET /on") != NULL) cyw43_arch_gpio_put(LED_PIN, 1);
-    else if (strstr(*request, "GET /off") != NULL) cyw43_arch_gpio_put(LED_PIN, 0);
-    else if (strstr(*request, "GET /on") != NULL) {
-        pwm_on_nivel();
-        pwm_volume(50);
+    static bool led_pin_e = false;
+    if (strstr(*request, "GET /luz_1") != NULL) gpio_put(blue_led, (!gpio_get(blue_led)));
+    else if (strstr(*request, "GET /luz_2") != NULL) gpio_put(green_led, (!gpio_get(green_led)));
+    else if (strstr(*request, "GET /luz_3") != NULL) gpio_put(red_led, (!gpio_get(red_led)));
+    else if (strstr(*request, "GET /luz_e") != NULL) {
+        led_pin_e = !led_pin_e;
+        cyw43_arch_gpio_put(LED_PIN, led_pin_e);
+    } else if (strstr(*request, "GET /sirene") != NULL) {
+        if(p.vol_up_down == false){
+            pwm_on();
+            add_alarm_in_ms (10, controle_pwm_crescendo, NULL, false);
+        }
     }
-    else if (strstr(*request, "GET /off") != NULL) pwm_off();
+
 }
 
 float temp_read(void){
@@ -169,6 +219,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "<!DOCTYPE html>\n"
              "<html>\n"
              "<head>\n"
+             "<meta charset=\"UTF-8\">"
              "<title> Iluminação Inteligente (Com sirene) </title>\n"
              "<style>\n"
              "body { background-color:rgb(1, 35, 97); font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
@@ -178,14 +229,13 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "</style>\n"
              "</head>\n"
              "<body>\n"
-             "<h1>Embarcatech: LED Control</h1>\n"
-             "<form action=\"./blue_on\"><button>Ligar Azul</button></form>\n"
-             "<form action=\"./blue_off\"><button>Desligar Azul</button></form>\n"
-             "<form action=\"./green_on\"><button>Ligar Verde</button></form>\n"
-             "<form action=\"./green_off\"><button>Desligar Verde</button></form>\n"
-             "<form action=\"./red_on\"><button>Ligar Vermelho</button></form>\n"
-             "<form action=\"./red_off\"><button>Desligar Vermelho</button></form>\n"
-             "<form action=\"./ativar_sirene\"><button>Ativar Sirene</button></form>\n"
+             "<h1>Iluminação: Lâmpadas </h1>\n"
+             "<h2>Sirene especial com ativação remota </h2>\n"
+             "<form action=\"./luz_1\"><button>Lâmpada 1</button></form>\n"
+             "<form action=\"./luz_2\"><button>Lâmpada 2</button></form>\n"
+             "<form action=\"./luz_3\"><button>Lâmpada 3</button></form>\n"
+             "<form action=\"./luz_e\"><button>Lâmpada E</button></form>\n"
+             "<form action=\"./sirene\"><button>Ativar Sirene</button></form>\n"
              "<p class=\"temperature\">Temperatura Interna: %.2f &deg;C</p>\n"
              "</body>\n"
              "</html>\n",
