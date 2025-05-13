@@ -26,7 +26,7 @@ typedef struct{
     bool vol_up_down;
     bool alarm_state;
 } pwm_struct;
-pwm_struct p = {39.0, 64.0, false, false};
+pwm_struct p = {39062.5, 1.0, false, false};
 
 void ledinit(void);
 int pwm_setup(void);
@@ -85,7 +85,7 @@ int main(){
 
     while (true){
         cyw43_arch_poll();
-        sleep_ms(100);
+        sleep_ms(20);
     }
 
     cyw43_arch_deinit();
@@ -103,16 +103,16 @@ void ledinit(void){
 int pwm_setup(void){
     gpio_set_function(buzzer_a, GPIO_FUNC_PWM);
     slice = pwm_gpio_to_slice_num(buzzer_a);
-    pwm_set_clkdiv(slice, 64.0);
-    pwm_set_wrap(slice, 40.0);
-    pwm_set_enabled(slice, true);
+    pwm_set_clkdiv(slice, p.div);
+    pwm_set_wrap(slice, p.dc);
+    pwm_set_enabled(slice, false);
     return slice;
 }
 
 void pwm_on(void){
     gpio_set_function(buzzer_a, GPIO_FUNC_PWM);
     pwm_set_enabled(slice, true);
-    pwm_set_gpio_level(slice, 0);
+    pwm_set_gpio_level(slice, p.dc/2);
 }
 
 void pwm_off(void){
@@ -124,18 +124,14 @@ void pwm_off(void){
 
 int64_t controle_pwm_crescendo(alarm_id_t id, void *user_data){
     p.vol_up_down = true;
-    if(p.dc < 3900.0 && p.alarm_state == false){
-        p.dc += 39.0;
-        p.div -= 0.32;
+    if(p.dc >= 3906.5 && p.alarm_state == false){
+        p.dc -= 39.0;
         pwm_set_wrap(slice, p.dc);
-        pwm_set_clkdiv(slice, p.div);
         pwm_set_gpio_level(slice, p.dc/2);
         add_alarm_in_ms(10, controle_pwm_crescendo, NULL, false);
-    } else if(p.dc >= 3900.0 && p.alarm_state == false) {
+    } else if(p.dc <= 3906.5 && p.alarm_state == false) {
         p.dc = 3900;
-        p.div = 32.0;
         pwm_set_wrap(slice, p.dc);
-        pwm_set_clkdiv(slice, p.div);
         pwm_set_gpio_level(slice, p.dc/2); 
         p.alarm_state = true;
         add_alarm_in_ms (4000, controle_pwm_decrescendo, NULL, false);
@@ -145,18 +141,14 @@ int64_t controle_pwm_crescendo(alarm_id_t id, void *user_data){
 }
 
 int64_t controle_pwm_decrescendo(alarm_id_t id, void *user_data){
-    if(p.dc >= 3900.0 && p.alarm_state == true){
-        p.dc -= 39.0;
-        p.div += 0.32;
+    if(p.dc <= 3906.5 && p.alarm_state == true){
+        p.dc += 39.0;
         pwm_set_wrap(slice, p.dc);
-        pwm_set_clkdiv(slice, p.div);
         pwm_set_gpio_level(slice, p.dc/2); 
         add_alarm_in_ms(10, controle_pwm_decrescendo, NULL, false);
-    } else if(p.dc < 40.0 && p.alarm_state == true){
-        p.dc = 39.0;
-        p.div = 64.0;
+    } else if(p.dc >= 39062.5 && p.alarm_state == true){
+        p.dc = 39062.5;
         pwm_set_wrap(slice, p.dc);
-        pwm_set_clkdiv(slice, p.div);
         pwm_set_gpio_level(slice, p.dc/2);
         p.alarm_state = false;
         p.vol_up_down = false;
