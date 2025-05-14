@@ -11,8 +11,8 @@
 #include "lwip/netif.h"
 #include "lwipopts.h"
 
-#define WIFI_SSID "S.F.C 2"
-#define WIFI_PASSWORD "857aj431"
+#define WIFI_SSID "Nome da Rede"
+#define WIFI_PASSWORD "Senha da Rede"
 #define LED_PIN CYW43_WL_GPIO_LED_PIN
 #define green_led 11
 #define blue_led 12
