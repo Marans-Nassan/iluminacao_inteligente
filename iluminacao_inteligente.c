@@ -11,22 +11,25 @@
 #include "lwip/netif.h"
 #include "lwipopts.h"
 
+// Definições de rede e pinos
 #define WIFI_SSID "Nome da Rede"
 #define WIFI_PASSWORD "Senha da Rede"
-#define LED_PIN CYW43_WL_GPIO_LED_PIN
-#define green_led 11
-#define blue_led 12
-#define red_led 13
-#define buzzer_a 21
+#define LED_PIN CYW43_WL_GPIO_LED_PIN  // LED de status Wi-Fi (Lâmpada Especial)
+#define green_led 11                   // LED verde (Lâmpada 2)
+#define blue_led 12                    // LED azul (Lâmpada 1)
+#define red_led 13                     // LED vermelho (Lâmpada 3)
+#define buzzer_a 21                    // Pino do buzzer (Sirene)
 
+// Configuração PWM para buzzer
 uint8_t slice = 0;
 typedef struct {
-    float dc;
-    float div;
-    bool alarm_state;
+    float dc;           // wrap value do PWM
+    float div;          // divisor de clock
+    bool alarm_state;   // estado da sirene
 } pwm_struct;
 pwm_struct pw = {7812.5, 32.0, false};
 
+// Protótipos de funções
 void ledinit(void);
 void pwm_setup(void);
 void pwm_on(uint8_t duty_cycle);
@@ -37,19 +40,21 @@ float temp_read(void);
 void user_request(char **request);
 
 int main() {
-    stdio_init_all();
-    ledinit();
-    pwm_setup();
+    stdio_init_all();         // Init UART padrão
+    ledinit();                // Configura LEDs GPIO
+    pwm_setup();              // Configura PWM para buzzer
 
+    // Inicializa Wi-Fi
     if (cyw43_arch_init()) {
         printf("Falha ao inicializar Wi-Fi\n");
         return -1;
     }
 
     cyw43_arch_gpio_put(LED_PIN, 0);
-    cyw43_arch_enable_sta_mode();
+    cyw43_arch_enable_sta_mode();  // Modo estação
 
     printf("Conectando ao Wi-Fi...\n");
+    // Tenta conectar com timeout
     if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 20000)) {
         printf("Falha ao conectar ao Wi-Fi\n");
         cyw43_arch_deinit();
@@ -57,31 +62,33 @@ int main() {
     }
     printf("Conectado ao Wi-Fi\n");
 
+    // Exibe IP se existir interface
     if (netif_default) {
         printf("IP do dispositivo: %s\n", ip4addr_ntoa(&netif_default->ip_addr));
     }
 
+    // Cria servidor TCP na porta 80
     struct tcp_pcb *server = tcp_new();
     if (!server) {
         printf("Falha ao criar servidor TCP\n");
         cyw43_arch_deinit();
         return -1;
     }
-
     if (tcp_bind(server, IP_ADDR_ANY, 80) != ERR_OK) {
         printf("Falha ao associar servidor TCP à porta 80\n");
         tcp_close(server);
         cyw43_arch_deinit();
         return -1;
     }
-
     server = tcp_listen(server);
     tcp_accept(server, tcp_server_accept);
     printf("Servidor ouvindo na porta 80\n");
 
+    // Inicializa ADC para leitura de temperatura
     adc_init();
     adc_set_temp_sensor_enabled(true);
 
+    // Loop principal: trata eventos Wi-Fi e mantém o programa ativo
     while (true) {
         cyw43_arch_poll();
         sleep_ms(20);
@@ -91,6 +98,7 @@ int main() {
     return 0;
 }
 
+// Configura pinos dos LEDs
 void ledinit(void) {
     for (uint8_t i = 11; i < 14; i++) {
         gpio_init(i);
@@ -99,6 +107,7 @@ void ledinit(void) {
     }
 }
 
+// Configura PWM no pino do buzzer
 void pwm_setup(void) {
     gpio_set_function(buzzer_a, GPIO_FUNC_PWM);
     slice = pwm_gpio_to_slice_num(buzzer_a);
@@ -107,23 +116,27 @@ void pwm_setup(void) {
     pwm_set_enabled(slice, false);
 }
 
+// Liga PWM com duty cycle em %
 void pwm_on(uint8_t duty_cycle) {
     gpio_set_function(buzzer_a, GPIO_FUNC_PWM);
     pwm_set_gpio_level(buzzer_a, (uint16_t)((pw.dc * duty_cycle) / 100));
     pwm_set_enabled(slice, true);
 }
 
+// Desliga PWM e zera pino
 void pwm_off(void) {
     pwm_set_enabled(slice, false);
     gpio_set_function(buzzer_a, GPIO_FUNC_SIO);
     gpio_put(buzzer_a, 0);
 }
 
+// Callback ao aceitar conexão TCP
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_recv(newpcb, tcp_server_recv);
     return ERR_OK;
 }
 
+// Processa requisição de controle das luzes e sirene
 void user_request(char **request) {
     static bool led_pin_e = false;
     if (strstr(*request, "GET /luz_1") != NULL) gpio_put(blue_led, !gpio_get(blue_led));
@@ -136,9 +149,10 @@ void user_request(char **request) {
         pw.alarm_state = !pw.alarm_state;
         if (pw.alarm_state) pwm_on(50);
         else pwm_off();
-      }
+    }
 }
 
+// Lê temperatura interna do sensor
 float temp_read(void) {
     adc_select_input(4);
     uint16_t raw_value = adc_read();
@@ -147,6 +161,7 @@ float temp_read(void) {
     return 27.0f - (voltage - 0.706f) / 0.001721f;
 }
 
+// Callback ao receber dados TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     if (!p) {
         tcp_close(tpcb);
@@ -154,12 +169,14 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
         return ERR_OK;
     }
 
+    // Copia requisição HTTP para string
     char *request = (char *)malloc(p->len + 1);
     memcpy(request, p->payload, p->len);
     request[p->len] = '\0';
 
-    user_request(&request);
+    user_request(&request);  // Atualiza estado conforme URL
 
+    // Gera página HTML com botões e temperatura
     float temperature = temp_read();
     char html[1024];
     snprintf(html, sizeof(html),
@@ -179,6 +196,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "<p class='temperature'>Temperatura: %.2f°C</p></body></html>",
              pw.alarm_state ? "Desativar" : "Ativar", temperature);
 
+    // Envia resposta e libera memória
     tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
     tcp_output(tpcb);
     free(request);
