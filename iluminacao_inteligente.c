@@ -12,8 +12,8 @@
 #include "lwipopts.h"
 
 // Definições de rede e pinos
-#define WIFI_SSID "Nome da Rede"
-#define WIFI_PASSWORD "Senha da Rede"
+#define WIFI_SSID "S.F.C 2"
+#define WIFI_PASSWORD "857aj431"
 #define LED_PIN CYW43_WL_GPIO_LED_PIN  // LED de status Wi-Fi (Lâmpada Especial)
 #define green_led 11                   // LED verde (Lâmpada 2)
 #define blue_led 12                    // LED azul (Lâmpada 1)
@@ -28,6 +28,9 @@ typedef struct {
     bool alarm_state;   // estado da sirene
 } pwm_struct;
 pwm_struct pw = {7812.5, 32.0, false};
+
+bool led_pin_e = false;
+
 
 // Protótipos de funções
 void ledinit(void);
@@ -138,7 +141,6 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
 
 // Processa requisição de controle das luzes e sirene
 void user_request(char **request) {
-    static bool led_pin_e = false;
     if (strstr(*request, "GET /luz_1") != NULL) gpio_put(blue_led, !gpio_get(blue_led));
     else if (strstr(*request, "GET /luz_2") != NULL) gpio_put(green_led, !gpio_get(green_led));
     else if (strstr(*request, "GET /luz_3") != NULL) gpio_put(red_led, !gpio_get(red_led));
@@ -188,12 +190,16 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
              "button{background-color:lightgray;font-size:36px;padding:20px 40px;margin:10px;border-radius:10px;}"
              ".temperature{font-size:48px;margin-top:30px;}</style></head>"
              "<body><h1>Iluminação: Lâmpadas</h1><h2>Sirene Especial</h2>"
-             "<form action=\"./luz_1\"><button>Lâmpada 1</button></form>"
-             "<form action=\"./luz_2\"><button>Lâmpada 2</button></form>"
-             "<form action=\"./luz_3\"><button>Lâmpada 3</button></form>"
-             "<form action=\"./luz_e\"><button>Lâmpada E</button></form>"
+             "<form action=\"./luz_1\"><button>%s Lâmpada 1</button></form>"
+             "<form action=\"./luz_2\"><button>%s Lâmpada 2</button></form>"
+             "<form action=\"./luz_3\"><button>%s Lâmpada 3</button></form>"
+             "<form action=\"./luz_e\"><button>%s Lâmpada E</button></form>"
              "<form action=\"./sirene\"><button>%s Sirene</button></form>"
              "<p class='temperature'>Temperatura: %.2f°C</p></body></html>",
+             gpio_get(blue_led) ? "Desativar" : "Ativar",
+             gpio_get(green_led) ? "Desativar" : "Ativar",
+             gpio_get(red_led) ? "Desativar" : "Ativar",
+             led_pin_e ? "Desativar" : "Ativar",
              pw.alarm_state ? "Desativar" : "Ativar", temperature);
 
     // Envia resposta e libera memória
