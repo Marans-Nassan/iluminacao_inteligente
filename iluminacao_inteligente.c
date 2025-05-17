@@ -19,6 +19,8 @@
 #define blue_led 12                    // LED azul (Lâmpada 1)
 #define red_led 13                     // LED vermelho (Lâmpada 3)
 #define buzzer_a 21                    // Pino do buzzer (Sirene)
+#define tamanho_max 64
+#define timeout_max 1000
 
 // Configuração PWM para buzzer
 uint8_t slice = 0;
@@ -31,12 +33,16 @@ pwm_struct pw = {7812.5, 32.0, false};
 
 bool led_pin_e = false;
 
+char rede[tamanho_max / 2];
+char senha[tamanho_max];
+
 
 // Protótipos de funções
 void ledinit(void);
 void pwm_setup(void);
 void pwm_on(uint8_t duty_cycle);
 void pwm_off(void);
+void read_line(char *buffer, size_t max_len);
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 float temp_read(void);
@@ -46,6 +52,15 @@ int main() {
     stdio_init_all();         // Init UART padrão
     ledinit();                // Configura LEDs GPIO
     pwm_setup();              // Configura PWM para buzzer
+    sleep_ms(3000);           // Tempo para o stdio_init_all() iniciar a conexão UART + Tempo para verificar no Monitor.
+    printf("Digite o nome da rede: \n");
+    read_line(rede, tamanho_max / 2);
+    printf("Rede: %s\n", rede);
+
+    printf("Digite a senha: \n");
+    read_line(senha, tamanho_max);
+    printf("Senha: %s\n", senha);
+
 
     // Inicializa Wi-Fi
     if (cyw43_arch_init()) {
@@ -58,12 +73,14 @@ int main() {
 
     printf("Conectando ao Wi-Fi...\n");
     // Tenta conectar com timeout
-    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 20000)) {
+    if (cyw43_arch_wifi_connect_timeout_ms(rede, senha, CYW43_AUTH_WPA2_AES_PSK, 20000)) {
         printf("Falha ao conectar ao Wi-Fi\n");
         cyw43_arch_deinit();
         return -1;
     }
     printf("Conectado ao Wi-Fi\n");
+
+    //WIFI_SSID, WIFI_PASSWORD
 
     // Exibe IP se existir interface
     if (netif_default) {
@@ -131,6 +148,20 @@ void pwm_off(void) {
     pwm_set_enabled(slice, false);
     gpio_set_function(buzzer_a, GPIO_FUNC_SIO);
     gpio_put(buzzer_a, 0);
+}
+
+void read_line(char *buffer, size_t max_len){
+    size_t idx = 0;
+    while(idx < max_len - 1){
+        int c = getchar_timeout_us(timeout_max);
+        if(c == PICO_ERROR_TIMEOUT){
+            if(idx > 0)break;
+            else continue;
+        }
+        if (c == '\r' || c == '\n' || c < 0) break;
+        buffer[idx++] = (char)c;
+    }
+    buffer[idx] = '\0';
 }
 
 // Callback ao aceitar conexão TCP
