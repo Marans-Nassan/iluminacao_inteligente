@@ -12,8 +12,6 @@
 #include "lwipopts.h"
 
 // Definições de rede e pinos
-#define WIFI_SSID "S.F.C 2"
-#define WIFI_PASSWORD "857aj431"
 #define LED_PIN CYW43_WL_GPIO_LED_PIN  // LED de status Wi-Fi (Lâmpada Especial)
 #define green_led 11                   // LED verde (Lâmpada 2)
 #define blue_led 12                    // LED azul (Lâmpada 1)
