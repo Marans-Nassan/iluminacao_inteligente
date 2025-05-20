@@ -19,8 +19,14 @@ Projeto para controle de iluminação e sirene via interface web, utilizando Ras
 ## Operação
 
 1. **Inicialização**
+   * É necessário definir a Rede e a Senha através do Serial Monitor.
+   
+   ```
+   1º Nome da Rede.
+   2º A senha.
+   ```
 
-   * Conecta ao Wi‑Fi (SSID/Senha definidos).
+   * Conecta ao Wi‑Fi.
    * Inicia servidor TCP ouvindo na porta 80.
 2. **Interface Web**
 
