@@ -19,8 +19,8 @@
 #define blue_led 12                    // LED azul (Lâmpada 1)
 #define red_led 13                     // LED vermelho (Lâmpada 3)
 #define buzzer_a 21                    // Pino do buzzer (Sirene)
-#define tamanho_max 64
-#define timeout_max 1000
+#define tamanho_max 64                 // Tamanho do buffer para os caracters da rede e senha
+#define timeout_max 1000               // tempo para cada caracter inserido para aceitar que seja colocado vários simultaneamente
 
 // Configuração PWM para buzzer
 uint8_t slice = 0;
@@ -38,25 +38,27 @@ char senha[tamanho_max];
 
 
 // Protótipos de funções
-void ledinit(void);
-void pwm_setup(void);
-void pwm_on(uint8_t duty_cycle);
-void pwm_off(void);
-void read_line(char *buffer, size_t max_len);
-static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
-static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
-float temp_read(void);
-void user_request(char **request);
+void ledinit(void);  //Iniciar os Leds RGBs
+void pwm_setup(void);   // Configura o PWM
+void pwm_on(uint8_t duty_cycle); // Ativa o pwm.
+void pwm_off(void); // Desliga o pwm e o buzzer afim de evitar qualquer vazamento no periférico
+void read_line(char *buffer, size_t max_len); // Responsável por ler o a rede e a senha digitada
+static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err); // Callback ao aceitar conexão TCP
+static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);   // Callback ao receber dados TCP
+void init_adc(void); //Inicia o adc e ativa a leitura de temperatura
+float temp_read(void); // Lê temperatura interna do sensor
+void user_request(char **request); // Processa requisição de controle das luzes e sirene
+
 
 int main() {
     stdio_init_all();         // Init UART padrão
-    ledinit();                // Configura LEDs GPIO
-    pwm_setup();              // Configura PWM para buzzer
+    ledinit();                
+    pwm_setup();
+    init_adc();              
     sleep_ms(3000);           // Tempo para o stdio_init_all() iniciar a conexão UART + Tempo para verificar no Monitor.
     printf("Digite o nome da rede: \n");
     read_line(rede, tamanho_max / 2);
     printf("Rede: %s\n", rede);
-
     printf("Digite a senha: \n");
     read_line(senha, tamanho_max);
     printf("Senha: %s\n", senha);
@@ -79,8 +81,6 @@ int main() {
         return -1;
     }
     printf("Conectado ao Wi-Fi\n");
-
-    //WIFI_SSID, WIFI_PASSWORD
 
     // Exibe IP se existir interface
     if (netif_default) {
@@ -105,8 +105,7 @@ int main() {
     printf("Servidor ouvindo na porta 80\n");
 
     // Inicializa ADC para leitura de temperatura
-    adc_init();
-    adc_set_temp_sensor_enabled(true);
+    
 
     // Loop principal: trata eventos Wi-Fi e mantém o programa ativo
     while (true) {
@@ -164,13 +163,16 @@ void read_line(char *buffer, size_t max_len){
     buffer[idx] = '\0';
 }
 
-// Callback ao aceitar conexão TCP
+void init_adc(void){
+    adc_init();
+    adc_set_temp_sensor_enabled(true);
+}
+
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_recv(newpcb, tcp_server_recv);
     return ERR_OK;
 }
 
-// Processa requisição de controle das luzes e sirene
 void user_request(char **request) {
     if (strstr(*request, "GET /luz_1") != NULL) gpio_put(blue_led, !gpio_get(blue_led));
     else if (strstr(*request, "GET /luz_2") != NULL) gpio_put(green_led, !gpio_get(green_led));
@@ -185,7 +187,6 @@ void user_request(char **request) {
     }
 }
 
-// Lê temperatura interna do sensor
 float temp_read(void) {
     adc_select_input(4);
     uint16_t raw_value = adc_read();
